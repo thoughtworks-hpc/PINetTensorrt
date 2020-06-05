@@ -1,0 +1,59 @@
+The system is: Linux - sh: 0: getcwd() failed: No such file or directory
+4.14.150-tegra - sh: 0: getcwd() failed: No such file or directory
+aarch64
+Determining if the C compiler works passed with the following output:
+Change Dir: /home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp
+
+Run Build Command:"/usr/bin/make" "cmTC_7ac47/fast"
+/usr/bin/make -f CMakeFiles/cmTC_7ac47.dir/build.make CMakeFiles/cmTC_7ac47.dir/build
+make[1]: Entering directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_7ac47.dir/testCCompiler.c.o
+/usr/bin/aarch64-linux-gnu-gcc-7    -o CMakeFiles/cmTC_7ac47.dir/testCCompiler.c.o   -c /home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp/testCCompiler.c
+Linking C executable cmTC_7ac47
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_7ac47.dir/link.txt --verbose=1
+/usr/bin/aarch64-linux-gnu-gcc-7      CMakeFiles/cmTC_7ac47.dir/testCCompiler.c.o  -o cmTC_7ac47 
+make[1]: Leaving directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+
+
+Detecting C compiler ABI info compiled with the following output:
+Change Dir: /home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp
+
+Run Build Command:"/usr/bin/make" "cmTC_9678d/fast"
+/usr/bin/make -f CMakeFiles/cmTC_9678d.dir/build.make CMakeFiles/cmTC_9678d.dir/build
+make[1]: Entering directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+Building C object CMakeFiles/cmTC_9678d.dir/CMakeCCompilerABI.c.o
+/usr/bin/aarch64-linux-gnu-gcc-7    -o CMakeFiles/cmTC_9678d.dir/CMakeCCompilerABI.c.o   -c /usr/share/cmake-3.10/Modules/CMakeCCompilerABI.c
+Linking C executable cmTC_9678d
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_9678d.dir/link.txt --verbose=1
+/usr/bin/aarch64-linux-gnu-gcc-7      CMakeFiles/cmTC_9678d.dir/CMakeCCompilerABI.c.o  -o cmTC_9678d 
+make[1]: Leaving directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+
+
+Determining if the CXX compiler works passed with the following output:
+Change Dir: /home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp
+
+Run Build Command:"/usr/bin/make" "cmTC_c3fc6/fast"
+/usr/bin/make -f CMakeFiles/cmTC_c3fc6.dir/build.make CMakeFiles/cmTC_c3fc6.dir/build
+make[1]: Entering directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+Building CXX object CMakeFiles/cmTC_c3fc6.dir/testCXXCompiler.cxx.o
+/usr/bin/aarch64-linux-gnu-g++-7     -o CMakeFiles/cmTC_c3fc6.dir/testCXXCompiler.cxx.o -c /home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+Linking CXX executable cmTC_c3fc6
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_c3fc6.dir/link.txt --verbose=1
+/usr/bin/aarch64-linux-gnu-g++-7       CMakeFiles/cmTC_c3fc6.dir/testCXXCompiler.cxx.o  -o cmTC_c3fc6 
+make[1]: Leaving directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+
+
+Detecting CXX compiler ABI info compiled with the following output:
+Change Dir: /home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp
+
+Run Build Command:"/usr/bin/make" "cmTC_39f54/fast"
+/usr/bin/make -f CMakeFiles/cmTC_39f54.dir/build.make CMakeFiles/cmTC_39f54.dir/build
+make[1]: Entering directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+Building CXX object CMakeFiles/cmTC_39f54.dir/CMakeCXXCompilerABI.cpp.o
+/usr/bin/aarch64-linux-gnu-g++-7     -o CMakeFiles/cmTC_39f54.dir/CMakeCXXCompilerABI.cpp.o -c /usr/share/cmake-3.10/Modules/CMakeCXXCompilerABI.cpp
+Linking CXX executable cmTC_39f54
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_39f54.dir/link.txt --verbose=1
+/usr/bin/aarch64-linux-gnu-g++-7       CMakeFiles/cmTC_39f54.dir/CMakeCXXCompilerABI.cpp.o  -o cmTC_39f54 
+make[1]: Leaving directory '/home/tangcheng/xuwen/PINetTensorrt/build/CMakeFiles/CMakeTmp'
+
+

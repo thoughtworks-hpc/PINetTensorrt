@@ -1,0 +1,27 @@
+[
+{
+  "directory": "/home/tangcheng/xuwen/PINetTensorrt/build",
+  "command": "/usr/bin/aarch64-linux-gnu-g++-7   -I/home/tangcheng/xuwen/PINetTensorrt/common -I/usr/local/cuda/include    -o CMakeFiles/PINetTensorrt.dir/common/getOptions.cpp.o -c /home/tangcheng/xuwen/PINetTensorrt/common/getOptions.cpp",
+  "file": "/home/tangcheng/xuwen/PINetTensorrt/common/getOptions.cpp"
+},
+{
+  "directory": "/home/tangcheng/xuwen/PINetTensorrt/build",
+  "command": "/usr/bin/aarch64-linux-gnu-g++-7   -I/home/tangcheng/xuwen/PINetTensorrt/common -I/usr/local/cuda/include    -o CMakeFiles/PINetTensorrt.dir/common/logger.cpp.o -c /home/tangcheng/xuwen/PINetTensorrt/common/logger.cpp",
+  "file": "/home/tangcheng/xuwen/PINetTensorrt/common/logger.cpp"
+},
+{
+  "directory": "/home/tangcheng/xuwen/PINetTensorrt/build",
+  "command": "/usr/bin/aarch64-linux-gnu-g++-7   -I/home/tangcheng/xuwen/PINetTensorrt/common -I/usr/local/cuda/include    -o CMakeFiles/PINetTensorrt.dir/common/sampleEngines.cpp.o -c /home/tangcheng/xuwen/PINetTensorrt/common/sampleEngines.cpp",
+  "file": "/home/tangcheng/xuwen/PINetTensorrt/common/sampleEngines.cpp"
+},
+{
+  "directory": "/home/tangcheng/xuwen/PINetTensorrt/build",
+  "command": "/usr/bin/aarch64-linux-gnu-g++-7   -I/home/tangcheng/xuwen/PINetTensorrt/common -I/usr/local/cuda/include    -o CMakeFiles/PINetTensorrt.dir/common/sampleOptions.cpp.o -c /home/tangcheng/xuwen/PINetTensorrt/common/sampleOptions.cpp",
+  "file": "/home/tangcheng/xuwen/PINetTensorrt/common/sampleOptions.cpp"
+},
+{
+  "directory": "/home/tangcheng/xuwen/PINetTensorrt/build",
+  "command": "/usr/bin/aarch64-linux-gnu-g++-7   -I/home/tangcheng/xuwen/PINetTensorrt/common -I/usr/local/cuda/include    -o CMakeFiles/PINetTensorrt.dir/PINetTensorrt.cpp.o -c /home/tangcheng/xuwen/PINetTensorrt/PINetTensorrt.cpp",
+  "file": "/home/tangcheng/xuwen/PINetTensorrt/PINetTensorrt.cpp"
+}
+]
