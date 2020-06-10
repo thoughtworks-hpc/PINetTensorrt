@@ -2,12 +2,15 @@ cmake_minimum_required(VERSION 3.10)
 
 project(PINetTensorrt)
 
+find_package(OpenCV REQUIRED)
+
 set(TEGRA_LIB_DIR /usr/lib/aarch64-linux-gnu/tegra)
 set(CUDA_INSTALL_DIR /usr/local/cuda)
 set(CUDA_INCLUDE_DIR ${CUDA_INSTALL_DIR}/include)
 set(CUDA_LIB_DIR ${CUDA_INSTALL_DIR}/lib64)
 
-include_directories(common ${CUDA_INCLUDE_DIR})
+include_directories(common ${CUDA_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
+
 aux_source_directory(. SRCS)
 aux_source_directory(common COMMON_SRCS)
 
@@ -17,4 +20,4 @@ add_executable(${PROJECT_NAME} ${COMMON_SRCS} ${SRCS})
 set(CUDA_LIB cuda cudnn cublas cudart culibos)
 set(NV_LIB nvinfer nvparsers nvinfer_plugin nvonnxparser)
 
-TARGET_LINK_LIBRARIES(${PROJECT_NAME} ${CUDA_LIB} ${NV_LIB})
+target_link_libraries(${PROJECT_NAME} ${CUDA_LIB} ${NV_LIB} ${OpenCV_LIBS})

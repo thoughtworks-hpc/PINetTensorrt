@@ -12,9 +12,13 @@
 #include <iostream>
 #include <sstream>
 
-const std::string gSampleName = "TensorRT.sample_onnx_mnist";
+#include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
-//! \brief  The SampleOnnxMNIST class implements the ONNX MNIST sample
+const std::string gSampleName = "TensorRT.onnx_PINet";
+
+//! \brief  The SampleOnnxMNIST class implements the ONNX PINet sample
 //!
 //! \details It creates the network using an ONNX model
 //!
@@ -40,12 +44,16 @@ public:
     //!
     bool infer();
 
+    void setImageFile(const std::string& imageFile) {
+        mImageFile = imageFile;
+    }
+
 private:
     common::OnnxParams mParams; //!< The parameters for the sample.
 
     nvinfer1::Dims mInputDims;  //!< The dimensions of the input to the network.
     nvinfer1::Dims mOutputDims; //!< The dimensions of the output to the network.
-    int mNumber{0};             //!< The number to classify
+    std::string mImageFile;            //!< The number to classify
 
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine; //!< The TensorRT engine used to run the network
 
@@ -117,9 +125,14 @@ bool PINetTensorrt::build()
     mInputDims = network->getInput(0)->getDimensions();
     assert(mInputDims.nbDims == 3);
 
-    assert(network->getNbOutputs() == 1);
+    printf("InputDims %d %d %d\n", mInputDims.d[0], mInputDims.d[1], mInputDims.d[2]);
+
+    assert(network->getNbOutputs() == 6);
     mOutputDims = network->getOutput(0)->getDimensions();
-    assert(mOutputDims.nbDims == 1);
+
+    assert(mOutputDims.nbDims == 3);
+
+    printf("OutputDims %d %d %d\n", mOutputDims.d[0], mOutputDims.d[1], mOutputDims.d[2]);
 
     return true;
 }
@@ -144,7 +157,7 @@ bool PINetTensorrt::constructNetwork(UniquePtr<nvinfer1::IBuilder>& builder,
     }
 
     builder->setMaxBatchSize(mParams.batchSize);
-    config->setMaxWorkspaceSize(16_MiB);
+    config->setMaxWorkspaceSize(1 << 30);
     if (mParams.fp16)
     {
         config->setFlag(BuilderFlag::kFP16);
@@ -213,24 +226,16 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     const int inputH = mInputDims.d[1];
     const int inputW = mInputDims.d[2];
 
-    // Read a random digit file
-    srand(unsigned(time(nullptr)));
-    std::vector<uint8_t> fileData(inputH * inputW);
-    mNumber = rand() % 10;
-    readPGMFile(locateFile(std::to_string(mNumber) + ".pgm", mParams.dataDirs), fileData.data(), inputH, inputW);
-
-    // Print an ascii representation
-    gLogInfo << "Input:" << std::endl;
-    for (int i = 0; i < inputH * inputW; i++)
-    {
-        gLogInfo << (" .:-=+*#%@"[fileData[i] / 26]) << (((i + 1) % inputW) ? "" : "\n");
-    }
-    gLogInfo << std::endl;
+    cv::Mat fileData = cv::imread(locateFile(mImageFile, mParams.dataDirs), 1);
+    cv::resize(fileData, fileData, cv::Size(inputW, inputH));
 
     float* hostDataBuffer = static_cast<float*>(buffers.getHostBuffer(mParams.inputTensorNames[0]));
-    for (int i = 0; i < inputH * inputW; i++)
+    int host_index = 0;
+    for (int i = 0; i < inputH; ++i)
     {
-        hostDataBuffer[i] = 1.0 - float(fileData[i] / 255.0);
+        for (int j = 0; j < inputW; ++j, ++host_index) {
+            hostDataBuffer[host_index] = 1.0 - float(fileData.at<uchar>(i, j) / 255.0);
+        }
     }
 
     return true;
@@ -271,7 +276,8 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
     }
     gLogInfo << std::endl;
 
-    return idx == mNumber && val > 0.9f;
+    return idx;
+    //return idx == mNumber && val > 0.9f;
 }
 
 //!
@@ -282,16 +288,22 @@ common::OnnxParams initializeSampleParams(const common::Args& args)
     common::OnnxParams params;
     if (args.dataDirs.empty()) //!< Use default directories if user hasn't provided directory paths
     {
-        params.dataDirs.push_back("./");
+        params.dataDirs.push_back("../data");
     }
     else //!< Use the data directory provided by the user
     {
         params.dataDirs = args.dataDirs;
     }
-    params.onnxFileName = "pinet.onnx";
-    params.inputTensorNames.push_back("Input3");
+    //params.onnxFileName = "pinet.onnx";
+    params.onnxFileName = "pinet1.0.0.onnx";
+    params.inputTensorNames.push_back("0");
     params.batchSize = 1;
-    params.outputTensorNames.push_back("Plus214_Output_0");
+    params.outputTensorNames.push_back("1431");
+    params.outputTensorNames.push_back("1438");
+    params.outputTensorNames.push_back("1445");
+    params.outputTensorNames.push_back("1679");
+    params.outputTensorNames.push_back("1686");
+    params.outputTensorNames.push_back("1693");
     params.dlaCore = args.useDLACore;
     params.int8 = args.runInInt8;
     params.fp16 = args.runInFp16;
@@ -304,9 +316,9 @@ common::OnnxParams initializeSampleParams(const common::Args& args)
 //!
 void printHelpInfo()
 {
-    std::cout << "Usage: ./pinettensorrt [-h or --help] [-d or --datadir=<path to data directory>] [--useDLACore=<int>]" << std::endl;
+    std::cout << "Usage: ./pinettensorrt [-h or --help] [-d or --datadir=<path to data path>] [--useDLACore=<int>]" << std::endl;
     std::cout << "--help          Display help information" << std::endl;
-    std::cout << "--datadir       Specify path to a data directory, overriding the default. This option can be used multiple times to add multiple directories. If no data directories are given, the default is to use (data/samples/mnist/, data/mnist/)" << std::endl;
+    std::cout << "--datadir       Specify path to a data path, overriding the default. This option can be used multiple times to add multiple directories. If no data directories are given, the default is to use (data/samples/mnist/, data/mnist/)" << std::endl;
     std::cout << "--useDLACore=N  Specify a DLA engine for layers that support DLA. Value can range from 0 to n-1, where n is the number of DLA engines on the platform." << std::endl;
     std::cout << "--int8          Run in Int8 mode." << std::endl;
     std::cout << "--fp16          Run in FP16 mode." << std::endl;
@@ -328,13 +340,15 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
 
+    setReportableSeverity(Logger::Severity::kVERBOSE);
     auto test = gLogger.defineTest(gSampleName, argc, argv);
 
     gLogger.reportTestStart(test);
 
     PINetTensorrt sample(initializeSampleParams(args));
+    sample.setImageFile("1.jpg");
 
-    gLogInfo << "Building and running a GPU inference engine for Onnx MNIST" << std::endl;
+    gLogInfo << "Building and running a GPU inference engine for Onnx PINet" << std::endl;
 
     if (!sample.build())
     {
