@@ -346,7 +346,7 @@ int main(int argc, char** argv)
     gLogger.reportTestStart(test);
 
     PINetTensorrt sample(initializeSampleParams(args));
-    sample.setImageFile("1.jpg");
+    sample.setImageFile("1492638000682869180/1.jpg");
 
     gLogInfo << "Building and running a GPU inference engine for Onnx PINet" << std::endl;
 
