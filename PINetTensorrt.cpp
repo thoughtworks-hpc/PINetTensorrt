@@ -52,7 +52,7 @@ private:
     common::OnnxParams mParams; //!< The parameters for the sample.
 
     nvinfer1::Dims mInputDims;  //!< The dimensions of the input to the network.
-    nvinfer1::Dims mOutputDims; //!< The dimensions of the output to the network.
+    std::vector<nvinfer1::Dims> mOutputDims; //!< The dimensions of the output to the network.
     std::string mImageFile;            //!< The number to classify
 
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine; //!< The TensorRT engine used to run the network
@@ -69,6 +69,7 @@ private:
     //!
     bool processInput(const common::BufferManager& buffers);
 
+    void generate_result(float* confidance, float* offsets, float* instance, float thresh);
     //!
     //! \brief Classifies digits and verify result
     //!
@@ -128,11 +129,13 @@ bool PINetTensorrt::build()
     printf("InputDims %d %d %d\n", mInputDims.d[0], mInputDims.d[1], mInputDims.d[2]);
 
     assert(network->getNbOutputs() == 6);
-    mOutputDims = network->getOutput(0)->getDimensions();
 
-    assert(mOutputDims.nbDims == 3);
-
-    printf("OutputDims %d %d %d\n", mOutputDims.d[0], mOutputDims.d[1], mOutputDims.d[2]);
+    for (int i = 0; i < network->getNbOutputs(); ++i) {
+        nvinfer1::Dims dim = network->getOutput(i)->getDimensions();
+        mOutputDims.push_back(dim);
+        assert(dim.nbDims == 3);
+        printf("OutputDims %d %d %d %d\n", i, dim.d[0], dim.d[1], dim.d[2]);
+    }
 
     return true;
 }
@@ -223,63 +226,176 @@ bool PINetTensorrt::infer()
 //!
 bool PINetTensorrt::processInput(const common::BufferManager& buffers)
 {
-    const int inputH = mInputDims.d[1];
-    const int inputW = mInputDims.d[2];
+    const int inputC = mInputDims.d[0];
+    const int inputW = mInputDims.d[1];
+    const int inputH = mInputDims.d[2];
+    printf("input: %d %d %d\n", inputC, inputW, inputH);
 
-    cv::Mat fileData = cv::imread(locateFile(mImageFile, mParams.dataDirs), 1);
-    cv::resize(fileData, fileData, cv::Size(inputW, inputH));
+    cv::Mat image = cv::imread(locateFile(mImageFile, mParams.dataDirs), 1);
+    cv::resize(image, image, cv::Size(inputW, inputH));
 
     float* hostDataBuffer = static_cast<float*>(buffers.getHostBuffer(mParams.inputTensorNames[0]));
     int host_index = 0;
-    for (int i = 0; i < inputH; ++i)
-    {
-        for (int j = 0; j < inputW; ++j, ++host_index) {
-            hostDataBuffer[host_index] = 1.0 - float(fileData.at<uchar>(i, j) / 255.0);
+    for (int c = 0; c < inputC; ++c) {
+        for (int i = 0; i < inputH; ++i) {
+            uchar* data = image.ptr<uchar>(i);
+            for (int j = 0; j < inputW; ++j, ++host_index, data += image.channels()) {
+                hostDataBuffer[host_index] = float(*(data + c)) / 255.0f;
+            }
         }
     }
 
     return true;
 }
 
+cv::Mat chwDataToMat(int numberOfChannel, int width, int height, float* data, cv::Mat& mask) {
+    std::vector<cv::Mat> channels;
+    int data_size = width * height * sizeof(float);
+    for (int c = 0; c < numberOfChannel; ++c) {
+        float* channel_data = data + data_size * c;
+        cv::Mat channel(width, height, CV_32FC1);
+        for (int h = 0; h < height; ++h) {
+            for (int w = 0; w < width; ++w, ++channel_data) {
+                channel.ptr<cv::Vec3b>(w, h)[c] = *channel_data * mask.at<int>(w, h);
+            }
+        }
+        channels.emplace_back(channel);
+    }
+
+    cv::Mat mergedMat;
+    cv::merge(channels.data(), numberOfChannel, mergedMat);
+    return mergedMat;
+}
+
+const int output_base_index = 3;
+const float threshold_point = 0.81f;
+const float threshold_instance = 0.22f;
+const int resize_ratio = 8;
+
+void PINetTensorrt::generate_result(float* confidance, float* offsets, float* instance, float thresh)
+{
+    const nvinfer1::Dims& dim            = mOutputDims[output_base_index];//1 64 32
+    const nvinfer1::Dims& offset_dim     = mOutputDims[output_base_index + 1];//2 64 32
+    const nvinfer1::Dims& instance_dim   = mOutputDims[output_base_index + 2];//4 64 32
+    
+    cv::Mat mask = cv::Mat::zeros(dim.d[1], dim.d[2], CV_8UC1);
+    float* confidance_ptr = confidance;
+    for (int i = 0; i < dim.d[2]; ++i) {
+        for (int j = 0; j < dim.d[1]; ++j, ++confidance_ptr) {
+            if (*confidance_ptr > thresh) {
+                mask.at<int>(i, j) = 1;
+            }
+        }
+    }
+
+    gLogInfo << "Output confidance mask:" << std::endl;
+    for (int i = 0; i < dim.d[2]; ++i) {
+        for (int j = 0; j < dim.d[1]; ++j) {
+            gLogInfo << (int)mask.at<int>(i, j);
+        }
+        gLogInfo << std::endl;
+    }
+
+    cv::Mat offset = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets, mask);
+    cv::Mat feature = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance, mask);
+
+    for (int i = 0; i < dim.d[2]; ++i) {
+        for (int j = 0; j < dim.d[1]; ++j) {
+            float feature0 = feature.at<cv::Vec3b>(i, j)[0];
+            float feature1 = feature.at<cv::Vec3b>(i, j)[1];
+            if (fabs(feature0) + fabs(feature1) < 0.000001f) {
+                continue;
+            }
+
+            int point_x = (int)((feature0 + j) * resize_ratio);
+            int point_y = (int)((feature1 + i) * resize_ratio);
+
+            if (point_x < 0 || point_x >= dim.d[1] || point_y < 0 || point_y >= dim.d[2]) {
+                continue;
+            }
+
+
+        }
+    }
+
+    // for i in range(len(grid)): //32 * 64 * 2
+    //     if (np.sum(feature[i]**2))>=0:
+    //         point_x = int((offset[i][0]+grid[i][0])*p.resize_ratio)
+    //         point_y = int((offset[i][1]+grid[i][1])*p.resize_ratio)
+    //         if point_x > p.x_size or point_x < 0 or point_y > p.y_size or point_y < 0:
+    //             continue
+    //         if len(lane_feature) == 0:
+    //             lane_feature.append(feature[i])
+    //             x.append([])
+    //             x[0].append(point_x)
+    //             y.append([])
+    //             y[0].append(point_y)
+    //         else:
+    //             flag = 0
+    //             index = 0
+    //             for feature_idx, j in enumerate(lane_feature):
+    //                 index += 1
+    //                 if index >= 12:
+    //                     index = 12
+    //                 if np.linalg.norm((feature[i] - j)**2) <= p.threshold_instance:
+    //                     lane_feature[feature_idx] = (j*len(x[index-1]) + feature[i])/(len(x[index-1])+1)
+    //                     x[index-1].append(point_x)
+    //                     y[index-1].append(point_y)
+    //                     flag = 1
+    //                     break
+    //             if flag == 0:
+    //                 lane_feature.append(feature[i])
+    //                 x.append([])
+    //                 x[index].append(point_x) 
+    //                 y.append([])
+    //                 y[index].append(point_y)
+                
+    // return x, y
+}
+
 //!
-//! \brief Classifies digits and verify result
+//! \brief verify result
 //!
-//! \return whether the classification output matches expectations
+//! \return whether output matches expectations
 //!
 bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
 {
-    const int outputSize = mOutputDims.d[0];
-    float* output = static_cast<float*>(buffers.getHostBuffer(mParams.outputTensorNames[0]));
-    float val{0.0f};
-    int idx{0};
-
-    // Calculate Softmax
-    float sum{0.0f};
-    for (int i = 0; i < outputSize; i++)
-    {
-        output[i] = exp(output[i]);
-        sum += output[i];
-    }
-
-    gLogInfo << "Output:" << std::endl;
-    for (int i = 0; i < outputSize; i++)
-    {
-        output[i] /= sum;
-        val = std::max(val, output[i]);
-        if (val == output[i])
-        {
-            idx = i;
+    float *confidance, *offset, *instance;
+    confidance = static_cast<float*>(buffers.getHostBuffer(mParams.outputTensorNames[output_base_index + 0]));    
+    offset     = static_cast<float*>(buffers.getHostBuffer(mParams.outputTensorNames[output_base_index + 1]));    
+    instance   = static_cast<float*>(buffers.getHostBuffer(mParams.outputTensorNames[output_base_index + 2]));    
+ 
+    nvinfer1::Dims confidanceDims = mOutputDims[output_base_index + 0];
+    nvinfer1::Dims offsetDims     = mOutputDims[output_base_index + 1];
+    nvinfer1::Dims instanceDims   = mOutputDims[output_base_index + 2];
+    
+    assert(confidanceDims.d[0] == 1);
+    assert(offsetDims.d[0]     == 2);
+    assert(instanceDims.d[0]   == 4);
+    
+    gLogInfo << "Output confidance:" << std::endl;
+    for (int i = 0; i < confidanceDims.d[2]; ++i) {
+        for (int j = 0; j < confidanceDims.d[1]; ++j) {
+            gLogInfo << std::fixed << std::setw(7) << std::setprecision(4) << confidance[i];
         }
-
-        gLogInfo << " Prob " << i << "  " << std::fixed << std::setw(5) << std::setprecision(4) << output[i] << " "
-                 << "Class " << i << ": " << std::string(int(std::floor(output[i] * 10 + 0.5f)), '*') << std::endl;
+        gLogInfo << std::endl;
     }
-    gLogInfo << std::endl;
 
-    return idx;
-    //return idx == mNumber && val > 0.9f;
+    generate_result(confidance, offset, instance, threshold_point);
+//    raw_x, raw_y = generate_result(confidence, offset, instance, thresh_point)
+//    
+//    in_x, in_y = eliminate_fewer_points(raw_x, raw_y)
+                
+//    # sort points along y 
+//    in_x, in_y = util.sort_along_y(in_x, in_y)  
+//    in_x, in_y = eliminate_out(in_x, in_y, confidence, deepcopy(image))
+//    in_x, in_y = util.sort_along_y(in_x, in_y)
+//    in_x, in_y = eliminate_fewer_points(in_x, in_y)
+
+//    result_image = util.draw_points(in_x, in_y, deepcopy(image))
+
+    return true;
 }
-
 //!
 //! \brief Initializes members of the params struct using the command line args
 //!
