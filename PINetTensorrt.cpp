@@ -297,23 +297,30 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     const int inputC = mInputDims.d[0];
     const int inputW = mInputDims.d[1];
     const int inputH = mInputDims.d[2];
-    printf("input: %d %d %d\n", inputC, inputW, inputH);
+
+    printf("input tensor: %d %d %d\n", inputC, inputW, inputH);
 
     cv::Mat image = cv::imread(locateFile(mImageFile, mParams.dataDirs), 1);
-    cv::resize(image, image, cv::Size(inputW, inputH));
+    assert(inputC == image.channels());
+
+    printf("input image: %d %d %d\n", image.channels(), image.cols, image.rows);
+    cv::resize(image, image, cv::Size(inputH, inputW));
+
+    printf("input image: %d %d %d\n", image.channels(), image.cols, image.rows);
     mInputImage = image;
 
     float* hostDataBuffer = static_cast<float*>(buffers.getHostBuffer(mParams.inputTensorNames[0]));
     int host_index = 0;
+    uchar* imageData = image.ptr<uchar>();
     for (int c = 0; c < inputC; ++c) {
-        for (int i = 0; i < inputH; ++i) {
-            uchar* data = image.ptr<uchar>(i);
-            for (int j = 0; j < inputW; ++j, ++host_index, data += image.channels()) {
-                hostDataBuffer[host_index] = float(*(data + c)) / 255.0f;
-            }
+        // The color image to input should be in BGR order
+        for (unsigned j = 0, volChl = inputH * inputW; j < volChl; ++j) {
+            hostDataBuffer[c * volChl + j] = float(imageData[j * inputC + c]) / 255.f;
+            gLogInfo << hostDataBuffer[c * volChl + j] << " ";
         }
+        gLogInfo << std::endl;
     }
-
+    
     return true;
 }
 
@@ -338,31 +345,38 @@ cv::Mat chwDataToMat(int numberOfChannel, int width, int height, float* data, cv
 
 LaneLines PINetTensorrt::generate_result(float* confidance, float* offsets, float* instance, float thresh)
 {
-    const nvinfer1::Dims& dim            = mOutputDims[output_base_index];//1 64 32
-    const nvinfer1::Dims& offset_dim     = mOutputDims[output_base_index + 1];//2 64 32
-    const nvinfer1::Dims& instance_dim   = mOutputDims[output_base_index + 2];//4 64 32
-    
+    const nvinfer1::Dims& dim            = mOutputDims[output_base_index];//1 32 64
+    const nvinfer1::Dims& offset_dim     = mOutputDims[output_base_index + 1];//2 32 64
+    const nvinfer1::Dims& instance_dim   = mOutputDims[output_base_index + 2];//4 32 64
+
     cv::Mat mask = cv::Mat::zeros(dim.d[1], dim.d[2], CV_8UC1);
     float* confidance_ptr = confidance;
-    for (int i = 0; i < dim.d[2]; ++i) {
-        for (int j = 0; j < dim.d[1]; ++j, ++confidance_ptr) {
+    for (int i = 0; i < dim.d[1]; ++i) {
+        for (int j = 0; j < dim.d[2]; ++j, ++confidance_ptr) {
             if (*confidance_ptr > thresh) {
-                mask.at<int>(i, j) = 1;
+                mask.at<uchar>(i, j) = 1;
             }
         }
     }
 
-    gLogInfo << "Output confidance mask:" << std::endl;
-    for (int i = 0; i < dim.d[2]; ++i) {
-        for (int j = 0; j < dim.d[1]; ++j) {
-            gLogInfo << (int)mask.at<int>(i, j);
+    gLogInfo << "Output mask:" << std::endl;
+    for (int i = 0; i < dim.d[1]; ++i) {
+        for (int j = 0; j < dim.d[2]; ++j) {
+            gLogInfo << (int)mask.at<uchar>(i, j);
         }
         gLogInfo << std::endl;
     }
 
+    gLogInfo << "Construct lanelines:" << std::endl;
+
+    
     cv::Mat offset = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets, mask);
     cv::Mat feature = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance, mask);
 
+    //gLogInfo << "offset: "<< offset << std::endl;
+    //std::cout << cv::format(offset, cv::Formatter::FMT_NUMPY) << ";" << endl << endl;
+
+    gLogInfo << "chw data to mat finish" << std::endl;
     LaneLines lanelines;
     
     for (int i = 0; i < dim.d[2]; ++i) {
@@ -428,14 +442,17 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
     gLogInfo << "Output confidance:" << std::endl;
     for (int i = 0; i < confidanceDims.d[2]; ++i) {
         for (int j = 0; j < confidanceDims.d[1]; ++j) {
-            gLogInfo << std::fixed << std::setw(7) << std::setprecision(4) << confidance[i];
+            gLogInfo << std::fixed << std::setw(10) << std::setprecision(8) << confidance[i * confidanceDims.d[1] + j] << " ";
         }
         gLogInfo << std::endl;
     }
 
+
     LaneLines lanelines = generate_result(confidance, offset, instance, threshold_point);
     if (lanelines.empty())
         return false;
+
+    gLogInfo << "generate_result finish!" << std::endl;
 
     cv::Mat result = mInputImage.clone();
     cv::Scalar colors[3] = { cv::Scalar(1, 0, 0), cv::Scalar(0, 1, 0), cv::Scalar(0, 0, 1) };
@@ -444,6 +461,9 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
             cv::circle(result, point, 3, colors[i % 3]);
         }
     }
+
+    gLogInfo << "draw lanelines to image finish" << std::endl;
+    cv::imwrite("result.png", result);
     return true;
 }
 //!
@@ -454,14 +474,14 @@ common::OnnxParams initializeSampleParams(const common::Args& args)
     common::OnnxParams params;
     if (args.dataDirs.empty()) //!< Use default directories if user hasn't provided directory paths
     {
-        params.dataDirs.push_back("../data");
+        params.dataDirs.push_back("/home/xuwen/devel/PINetTensorrt/data");
     }
     else //!< Use the data directory provided by the user
     {
         params.dataDirs = args.dataDirs;
     }
     //params.onnxFileName = "pinet.onnx";
-    params.onnxFileName = "pinet1.0.0.onnx";
+    params.onnxFileName = "pinet.onnx";
     params.inputTensorNames.push_back("0");
     params.batchSize = 1;
     params.outputTensorNames.push_back("1431");
@@ -506,7 +526,7 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
 
-    setReportableSeverity(Logger::Severity::kVERBOSE);
+    setReportableSeverity(Logger::Severity::kINFO);
     auto test = gLogger.defineTest(gSampleName, argc, argv);
 
     gLogger.reportTestStart(test);

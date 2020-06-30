@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 
 project(PINetTensorrt)
 
+add_compile_options("-g")
+
 find_package(OpenCV REQUIRED)
 
 set(TEGRA_LIB_DIR /usr/lib/aarch64-linux-gnu/tegra)
