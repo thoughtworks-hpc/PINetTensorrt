@@ -316,9 +316,7 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
         // The color image to input should be in BGR order
         for (unsigned j = 0, volChl = inputH * inputW; j < volChl; ++j) {
             hostDataBuffer[c * volChl + j] = float(imageData[j * inputC + c]) / 255.f;
-            gLogInfo << hostDataBuffer[c * volChl + j] << " ";
         }
-        gLogInfo << std::endl;
     }
     
     return true;
@@ -367,9 +365,21 @@ LaneLines PINetTensorrt::generate_result(float* confidance, float* offsets, floa
         gLogInfo << std::endl;
     }
 
+    cv::Mat lanesImage = mInputImage.clone();
+    cv::Scalar lanesColor(0, 0, 255);
+    for (int i = 0; i < dim.d[1]; ++i) {
+        for (int j = 0; j < dim.d[2]; ++j) {
+            if ((int)mask.at<uchar>(i, j)) {
+                cv::circle(lanesImage, cv::Point2f(j * 8, i * 8), 3, lanesColor, -1);
+            }
+        }
+    }
+
+    cv::imshow("lanes", lanesImage);
+    cv::waitKey(0);
+
     gLogInfo << "Construct lanelines:" << std::endl;
 
-    
     cv::Mat offset = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets, mask);
     cv::Mat feature = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance, mask);
 
@@ -438,15 +448,6 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
     assert(confidanceDims.d[0] == 1);
     assert(offsetDims.d[0]     == 2);
     assert(instanceDims.d[0]   == 4);
-    
-    gLogInfo << "Output confidance:" << std::endl;
-    for (int i = 0; i < confidanceDims.d[2]; ++i) {
-        for (int j = 0; j < confidanceDims.d[1]; ++j) {
-            gLogInfo << std::fixed << std::setw(10) << std::setprecision(8) << confidance[i * confidanceDims.d[1] + j] << " ";
-        }
-        gLogInfo << std::endl;
-    }
-
 
     LaneLines lanelines = generate_result(confidance, offset, instance, threshold_point);
     if (lanelines.empty())
