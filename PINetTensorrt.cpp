@@ -17,75 +17,37 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-const std::string gSampleName = "TensorRT.onnx_PINet";
-
-const int output_base_index = 3;
-const float threshold_point = 0.81f;
-const float threshold_instance = 0.22f;
-const int resize_ratio = 8;
-
 namespace {
+    const std::string gSampleName = "TensorRT.onnx_PINet";
+
+    const int output_base_index = 3;
+    const float threshold_point = 0.81f;
+    const float threshold_instance = 0.22f;
+    const int resize_ratio = 8;
 
     using LaneLine = std::vector<cv::Point2f>;
     using LaneLines = std::vector<LaneLine>;
 
-    float lengthSquare2(const cv::Point2f& p0, const cv::Point2f& p1) {
-        cv::Point2f d = p0 - p1;
-        return d.x * d.x + d.y * d.y;
-    }
-
-    void nearestInsert(LaneLine& laneline, const cv::Point2f& p, float thresh_hold) {
-        float distance = 0.f;
-        int index = -1;
-        for (int i = 0; i < laneline.size(); ++i) {
-            float length = lengthSquare2(laneline[i], p);
-            if (length < distance && length < thresh_hold) {
-                distance = length;
-                index = i;
+    cv::Mat chwDataToMat(int channelNum, int height, int width, float* data, cv::Mat& mask) {
+        std::vector<cv::Mat> channels(channelNum);
+        int data_size = width * height;
+        for (int c = 0; c < channelNum; ++c) {
+            float* channel_data = data + data_size * c;
+            cv::Mat channel(width, height, CV_32FC1);
+            for (int h = 0; h < height; ++h) {
+                for (int w = 0; w < width; ++w, ++channel_data) {
+                    channel.at<float>(w, h) = *channel_data * (int)mask.at<uchar>(w, h);
+                }
             }
+            channels[c] = channel;
         }
 
-        if (index == -1) {
-            return;
-        }
-
-        int pre_index = index;
-        int next_index = index;
-        
-        if (index == 0) {
-            next_index = 1;
-
-            cv::Vec2f v_p0 = laneline[pre_index] - p;
-            cv::Vec2f v_p1 = laneline[next_index] - p;
-            if (v_p0.dot(v_p1) < 0) {
-                laneline.insert(laneline.begin() + next_index, p);
-            } else {
-                laneline.insert(laneline.begin() + pre_index, p);
-            }
-        } else if (index == laneline.size() - 1) {
-            pre_index = index - 1;
-            
-            cv::Vec2f v_p0 = laneline[pre_index] - p;
-            cv::Vec2f v_p1 = laneline[next_index] - p;
-            if (v_p0.dot(v_p1) < 0) {
-                laneline.insert(laneline.begin() + next_index, p);
-            } else {
-                laneline.emplace_back(p);
-            }   
-        } else {
-            pre_index = index - 1;
-            next_index = index + 1;
-            
-            cv::Vec2f v_p0 = laneline[pre_index] - p;
-            cv::Vec2f v_p1 = laneline[next_index] - p;
-            if (v_p0.dot(v_p1) < 0) {
-                laneline.insert(laneline.begin() + index, p);
-            } else {
-                laneline.insert(laneline.begin() + next_index, p);
-            }
-        }
+        cv::Mat mergedMat;
+        cv::merge(channels.data(), channelNum, mergedMat);
+        return mergedMat;
     }
 }
+
 //! \brief  The SampleOnnxMNIST class implements the ONNX PINet sample
 //!
 //! \details It creates the network using an ONNX model
@@ -112,8 +74,8 @@ public:
     //!
     bool infer();
 
-    void setImageFile(const std::string& imageFile) {
-        mImageFile = imageFile;
+    void setImageFile(const std::string& imageFileName) {
+        mImageFileName = imageFileName;
     }
 
 private:
@@ -121,7 +83,7 @@ private:
 
     nvinfer1::Dims mInputDims;  //!< The dimensions of the input to the network.
     std::vector<nvinfer1::Dims> mOutputDims; //!< The dimensions of the output to the network.
-    std::string mImageFile;            //!< The number to classify
+    std::string mImageFileName;            //!< The number to classify
     cv::Mat mInputImage;
 
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine; //!< The TensorRT engine used to run the network
@@ -191,19 +153,27 @@ bool PINetTensorrt::build()
         return false;
     }
 
+    if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE) {
+        for (int i = 0; i < network->getNbInputs(); ++i) {
+            nvinfer1::Dims dim = network->getInput(i)->getDimensions();
+            gLogInfo << "InputDims: " << i << " " << dim.d[0] << " " << dim.d[1] << " " << dim.d[2] << std::endl;
+        }
+
+        for (int i = 0; i < network->getNbOutputs(); ++i) {
+            nvinfer1::Dims dim = network->getOutput(i)->getDimensions();
+            gLogInfo << "OutputDims: " << i << " " << dim.d[0] << " " << dim.d[1] << " " << dim.d[2] << std::endl;
+        }
+    }
+
     assert(network->getNbInputs() == 1);
     mInputDims = network->getInput(0)->getDimensions();
     assert(mInputDims.nbDims == 3);
 
-    gLogInfo << "InputDims: " << mInputDims.d[0] << " " << mInputDims.d[1] << " " << mInputDims.d[2] << std::endl;
-
     assert(network->getNbOutputs() == 6);
-
     for (int i = 0; i < network->getNbOutputs(); ++i) {
         nvinfer1::Dims dim = network->getOutput(i)->getDimensions();
         mOutputDims.push_back(dim);
         assert(dim.nbDims == 3);
-        gLogInfo << "OutputDims: " << i << " " << dim.d[0] << " " << dim.d[1] << " " << dim.d[2] << std::endl;
     }
 
     return true;
@@ -303,7 +273,7 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     const int inputW = mInputDims.d[1];
     const int inputH = mInputDims.d[2];
 
-    cv::Mat image = cv::imread(locateFile(mImageFile, mParams.dataDirs), 1);
+    cv::Mat image = cv::imread(locateFile(mImageFileName, mParams.dataDirs), 1);
     assert(inputC == image.channels());
     cv::resize(image, image, cv::Size(inputH, inputW));
 
@@ -320,33 +290,14 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     return true;
 }
 
-cv::Mat chwDataToMat(int channelNum, int height, int width, float* data, cv::Mat& mask) {
-    std::vector<cv::Mat> channels(channelNum);
-    int data_size = width * height;
-    for (int c = 0; c < channelNum; ++c) {
-        float* channel_data = data + data_size * c;
-        cv::Mat channel(width, height, CV_32FC1);
-        for (int h = 0; h < height; ++h) {
-            for (int w = 0; w < width; ++w) {
-                channel.at<float>(w, h) = *channel_data * (int)mask.at<uchar>(w, h);
-            }
-        }
-        channels[c] = channel;
-    }
-
-    cv::Mat mergedMat;
-    cv::merge(channels.data(), channelNum, mergedMat);
-    return mergedMat;
-}
-
-LaneLines PINetTensorrt::generate_result(float* confidance, float* offsets, float* instance, float thresh)
+LaneLines PINetTensorrt::generate_result(float* confidance_data, float* offsets_data, float* instance_data, float thresh)
 {
     const nvinfer1::Dims& dim            = mOutputDims[output_base_index];//1 32 64
     const nvinfer1::Dims& offset_dim     = mOutputDims[output_base_index + 1];//2 32 64
     const nvinfer1::Dims& instance_dim   = mOutputDims[output_base_index + 2];//4 32 64
 
     cv::Mat mask = cv::Mat::zeros(dim.d[2], dim.d[1], CV_8UC1);
-    float* confidance_ptr = confidance;
+    float* confidance_ptr = confidance_data;
     for (int i = 0; i < dim.d[1]; ++i) {
         for (int j = 0; j < dim.d[2]; ++j, ++confidance_ptr) {
             if (*confidance_ptr > thresh) {
@@ -355,91 +306,115 @@ LaneLines PINetTensorrt::generate_result(float* confidance, float* offsets, floa
         }
     }
 
-    gLogInfo << "Output mask:" << std::endl;
-    for (int i = 0; i < dim.d[1]; ++i) {
-        for (int j = 0; j < dim.d[2]; ++j) {
-            gLogInfo << (int)mask.at<uchar>(j, i);
-        }
-        gLogInfo << std::endl;
-    }
-
-    // cv::Mat lanesImage = mInputImage.clone();
-    // cv::Scalar lanesColor(0, 0, 255);
-    // for (int i = 0; i < dim.d[1]; ++i) {
-    //     for (int j = 0; j < dim.d[2]; ++j) {
-    //         if ((int)mask.at<uchar>(j, i)) {
-    //             cv::circle(lanesImage, cv::Point2f(j * 8, i * 8), 3, lanesColor, -1);
-    //         }
-    //     }
-    // }
-
-    // cv::imshow("lanes", lanesImage);
-    // cv::waitKey(0);
-
-    gLogInfo << "Construct lanelines:" << std::endl;
-
-    cv::Mat offset = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets, mask);
-    gLogInfo << "Output offset:" << std::endl;
-    for (int i = 0; i < dim.d[1]; ++i) {
-        for (int j = 0; j < dim.d[2]; ++j) {
-            gLogInfo << (offset.at<cv::Vec2f>(j, i)[0] ? 1 : 0);
-        }
-        gLogInfo << std::endl;
-    }
-
-    cv::Mat feature = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance, mask);
-    gLogInfo << "Output instance:" << std::endl;
-    for (int i = 0; i < dim.d[1]; ++i) {
-        for (int j = 0; j < dim.d[2]; ++j) {
-            gLogInfo << (feature.at<cv::Vec4f>(j, i)[0] ? 1 : 0);
-        }
-        gLogInfo << std::endl;
-    }
-
-    //gLogInfo << "offset: "<< offset << std::endl;
-    //std::cout << cv::format(offset, cv::Formatter::FMT_NUMPY) << ";" << endl << endl;
-
-    gLogInfo << "chw data to mat finish" << std::endl;
-    LaneLines lanelines;
-    
-    for (int i = 0; i < dim.d[2]; ++i) {
-        for (int j = 0; j < dim.d[1]; ++j) {
-            const cv::Vec2f& feature_value = feature.at<cv::Vec2f>(i, j);
-            if (feature_value[0] * feature_value[0] + feature_value[1] * feature_value[1] < 0.000001f) {
-                continue;
+    if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE) {
+        gLogInfo << "Output mask:" << std::endl;
+        for (int i = 0; i < dim.d[1]; ++i) {
+            for (int j = 0; j < dim.d[2]; ++j) {
+                gLogInfo << (int)mask.at<uchar>(j, i);
             }
+            gLogInfo << std::endl;
+        }
 
-            float point_x = (feature_value[0] + j) * resize_ratio;
-            float point_y = (feature_value[1] + i) * resize_ratio;
-
-            if (point_x < 0 || point_x >= dim.d[1] || point_y < 0 || point_y >= dim.d[2]) {
-                continue;
-            }
-
-            if (lanelines.empty()) {
-                LaneLine line;
-                line.reserve(256);
-                line.emplace_back(cv::Point2f(point_x, point_y));
-                lanelines.emplace_back(line);
-            } else {
-                for (auto& laneline : lanelines) {
-                    nearestInsert(laneline, cv::Point2f(point_x, point_y), threshold_point);
+        cv::Mat maskImage = mInputImage.clone();
+        cv::Scalar color(0, 0, 255);
+        for (int i = 0; i < dim.d[1]; ++i) {
+            for (int j = 0; j < dim.d[2]; ++j) {
+                if ((int)mask.at<uchar>(j, i)) {
+                    cv::circle(maskImage, cv::Point2f(j * 8, i * 8), 3, color, -1);
                 }
             }
         }
+        cv::imshow("mask", maskImage);
+        cv::waitKey(0);
     }
 
-    for (auto itr = lanelines.begin(); itr != lanelines.end();) {
-        auto& laneline = *itr;
-        if (laneline.size() > 2) {
-            laneline.shrink_to_fit();
-            ++itr;
-        } else {
-            itr = lanelines.erase(itr);
+    cv::Mat offsets  = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets_data, mask);
+    cv::Mat features = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance_data, mask);    
+
+    if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE) {
+        gLogInfo << "Output offset:" << std::endl;
+        for (int i = 0; i < dim.d[1]; ++i) {
+            for (int j = 0; j < dim.d[2]; ++j) {
+                gLogInfo << (offsets.at<cv::Vec2f>(j, i)[0] ? 1 : 0);
+            }
+            gLogInfo << std::endl;
+        }
+
+        cv::Mat offsetImage = mInputImage.clone();
+        cv::Scalar color(0, 0, 255);
+        for (int i = 0; i < dim.d[1]; ++i) {
+            for (int j = 0; j < dim.d[2]; ++j) {
+                if ((int)mask.at<uchar>(j, i)) {
+                    cv::Vec2f pointOffset = offsets.at<cv::Vec2f>(j, i);
+                    cv::Point2f point(pointOffset[0] + j, pointOffset[1] + i);
+                    cv::circle(offsetImage, point * 8, 3, color, -1);
+                }
+            }
+        }
+        cv::imshow("offset", offsetImage);
+        cv::waitKey(0);
+
+        gLogInfo << "Output instance:" << std::endl;
+        for (int i = 0; i < dim.d[1]; ++i) {
+            for (int j = 0; j < dim.d[2]; ++j) {
+                gLogInfo << (features.at<cv::Vec4f>(j, i)[0] ? 1 : 0);
+            }
+            gLogInfo << std::endl;
         }
     }
 
-    return lanelines;
+    LaneLines laneLines;
+    std::vector<cv::Vec4f> laneFeatures;
+
+    auto findNearestFeature = [&laneFeatures](const cv::Vec4f& feature) -> int {
+        for (int i = 0; i < laneFeatures.size(); ++i) {
+            auto delta = laneFeatures[i] - feature;
+            if (delta.dot(delta) <= threshold_instance) {
+                return i;
+            }
+        }
+        return -1;
+    };
+
+    for (int i = 0; i < dim.d[1]; ++i) {
+        for (int j = 0; j < dim.d[2]; ++j) {
+            if ((int)mask.at<uchar>(j, i) == 0) {
+                continue;
+            }
+
+            const cv::Vec2f& offset = offsets.at<cv::Vec2f>(j, i);
+            cv::Point2f point(offset[0] + j, offset[1] + i);
+            if (point.x > dim.d[2] || point.x < 0.f) continue;
+            if (point.y > dim.d[1] || point.y < 0.f) continue;
+
+            const cv::Vec4f& feature = features.at<cv::Vec4f>(j, i);
+            int lane_index = findNearestFeature(feature);
+            
+            if (lane_index == -1) {
+                laneLines.emplace_back(LaneLine({point}));
+                laneFeatures.emplace_back(feature);
+            } else {
+                auto& laneline = laneLines[lane_index];
+                auto& lanefeature = laneFeatures[lane_index];
+
+                auto point_size = laneline.size(); 
+
+                lanefeature = lanefeature.mul(cv::Vec4f::all(point_size)) + feature;
+                lanefeature = lanefeature.mul(cv::Vec4f::all(1.f / (point_size + 1)));
+                laneline.emplace_back(point);
+            }
+        }
+    }
+
+    for (auto itr = laneLines.begin(); itr != laneLines.end();) {
+        if ((*itr).size() < 2) {
+            itr = laneLines.erase(itr);
+        } else {
+            ++itr;
+        }
+    }
+
+    return laneLines;
 }
 
 //!
@@ -466,18 +441,27 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
     if (lanelines.empty())
         return false;
 
-    gLogInfo << "generate_result finish!" << std::endl;
+    cv::Scalar color[] = {{255,   0,   0}, {  0, 255,   0}, {  0,   0, 255}, 
+                        {255, 255,   0}, {255,   0, 255}, {  0, 255, 255}, 
+                        {255, 255, 255}, {100, 255,   0}, {100,   0, 255}, 
+                        {255, 100,   0}, {  0, 100, 255}, {255,   0, 100}, 
+                        {  0, 255, 100}};
 
-    cv::Mat result = mInputImage.clone();
-    cv::Scalar colors[3] = { cv::Scalar(1, 0, 0), cv::Scalar(0, 1, 0), cv::Scalar(0, 0, 1) };
+    cv::Mat lanelineImage = mInputImage.clone();
     for (int i = 0; i < lanelines.size(); ++i) {
         for (const auto& point : lanelines[i]) {
-            cv::circle(result, point, 3, colors[i % 3]);
+            cv::circle(lanelineImage, cv::Point2f(point * 8), 3, color[i], -1);
         }
     }
 
-    gLogInfo << "draw lanelines to image finish" << std::endl;
-    cv::imwrite("result.png", result);
+    cv::imwrite("lanelines.jpg", lanelineImage);
+
+    //if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE)
+    {
+        cv::imshow("lanelines", lanelineImage);
+        cv::waitKey(0);
+    }
+
     return true;
 }
 //!
