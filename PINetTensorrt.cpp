@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <chrono>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/core.hpp>
@@ -194,7 +195,7 @@ bool PINetTensorrt::build()
     mInputDims = network->getInput(0)->getDimensions();
     assert(mInputDims.nbDims == 3);
 
-    printf("InputDims %d %d %d\n", mInputDims.d[0], mInputDims.d[1], mInputDims.d[2]);
+    gLogInfo << "InputDims: " << mInputDims.d[0] << " " << mInputDims.d[1] << " " << mInputDims.d[2] << std::endl;
 
     assert(network->getNbOutputs() == 6);
 
@@ -202,7 +203,7 @@ bool PINetTensorrt::build()
         nvinfer1::Dims dim = network->getOutput(i)->getDimensions();
         mOutputDims.push_back(dim);
         assert(dim.nbDims == 3);
-        printf("OutputDims %d %d %d %d\n", i, dim.d[0], dim.d[1], dim.d[2]);
+        gLogInfo << "OutputDims: " << i << " " << dim.d[0] << " " << dim.d[1] << " " << dim.d[2] << std::endl;
     }
 
     return true;
@@ -268,6 +269,7 @@ bool PINetTensorrt::infer()
         return false;
     }
 
+    auto inferenceBeginTime = std::chrono::high_resolution_clock::now();
     // Memcpy from host input buffers to device input buffers
     buffers.copyInputToDevice();
 
@@ -279,6 +281,9 @@ bool PINetTensorrt::infer()
 
     // Memcpy from device output buffers to host output buffers
     buffers.copyOutputToHost();
+
+    auto inferenceElapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - inferenceBeginTime);
+    gLogInfo << "inference elapsed time: " << inferenceElapsedTime.count() / 1000.f << " milliseconds" << std::endl;
 
     // Verify results
     if (!verifyOutput(buffers))
@@ -298,22 +303,15 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     const int inputW = mInputDims.d[1];
     const int inputH = mInputDims.d[2];
 
-    printf("input tensor: %d %d %d\n", inputC, inputW, inputH);
-
     cv::Mat image = cv::imread(locateFile(mImageFile, mParams.dataDirs), 1);
     assert(inputC == image.channels());
-
-    printf("input image: %d %d %d\n", image.channels(), image.cols, image.rows);
     cv::resize(image, image, cv::Size(inputH, inputW));
 
-    printf("input image: %d %d %d\n", image.channels(), image.cols, image.rows);
     mInputImage = image;
 
     float* hostDataBuffer = static_cast<float*>(buffers.getHostBuffer(mParams.inputTensorNames[0]));
-    int host_index = 0;
     uchar* imageData = image.ptr<uchar>();
     for (int c = 0; c < inputC; ++c) {
-        // The color image to input should be in BGR order
         for (unsigned j = 0, volChl = inputH * inputW; j < volChl; ++j) {
             hostDataBuffer[c * volChl + j] = float(imageData[j * inputC + c]) / 255.f;
         }
@@ -322,22 +320,22 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     return true;
 }
 
-cv::Mat chwDataToMat(int numberOfChannel, int width, int height, float* data, cv::Mat& mask) {
-    std::vector<cv::Mat> channels;
-    int data_size = width * height * sizeof(float);
-    for (int c = 0; c < numberOfChannel; ++c) {
+cv::Mat chwDataToMat(int channelNum, int height, int width, float* data, cv::Mat& mask) {
+    std::vector<cv::Mat> channels(channelNum);
+    int data_size = width * height;
+    for (int c = 0; c < channelNum; ++c) {
         float* channel_data = data + data_size * c;
         cv::Mat channel(width, height, CV_32FC1);
         for (int h = 0; h < height; ++h) {
-            for (int w = 0; w < width; ++w, ++channel_data) {
-                channel.at<float>(w, h) = *channel_data * mask.at<int>(w, h);
+            for (int w = 0; w < width; ++w) {
+                channel.at<float>(w, h) = *channel_data * (int)mask.at<uchar>(w, h);
             }
         }
-        channels.emplace_back(channel);
+        channels[c] = channel;
     }
 
     cv::Mat mergedMat;
-    cv::merge(channels.data(), numberOfChannel, mergedMat);
+    cv::merge(channels.data(), channelNum, mergedMat);
     return mergedMat;
 }
 
@@ -347,12 +345,12 @@ LaneLines PINetTensorrt::generate_result(float* confidance, float* offsets, floa
     const nvinfer1::Dims& offset_dim     = mOutputDims[output_base_index + 1];//2 32 64
     const nvinfer1::Dims& instance_dim   = mOutputDims[output_base_index + 2];//4 32 64
 
-    cv::Mat mask = cv::Mat::zeros(dim.d[1], dim.d[2], CV_8UC1);
+    cv::Mat mask = cv::Mat::zeros(dim.d[2], dim.d[1], CV_8UC1);
     float* confidance_ptr = confidance;
     for (int i = 0; i < dim.d[1]; ++i) {
         for (int j = 0; j < dim.d[2]; ++j, ++confidance_ptr) {
             if (*confidance_ptr > thresh) {
-                mask.at<uchar>(i, j) = 1;
+                mask.at<uchar>(j, i) = 1;
             }
         }
     }
@@ -360,28 +358,43 @@ LaneLines PINetTensorrt::generate_result(float* confidance, float* offsets, floa
     gLogInfo << "Output mask:" << std::endl;
     for (int i = 0; i < dim.d[1]; ++i) {
         for (int j = 0; j < dim.d[2]; ++j) {
-            gLogInfo << (int)mask.at<uchar>(i, j);
+            gLogInfo << (int)mask.at<uchar>(j, i);
         }
         gLogInfo << std::endl;
     }
 
-    cv::Mat lanesImage = mInputImage.clone();
-    cv::Scalar lanesColor(0, 0, 255);
-    for (int i = 0; i < dim.d[1]; ++i) {
-        for (int j = 0; j < dim.d[2]; ++j) {
-            if ((int)mask.at<uchar>(i, j)) {
-                cv::circle(lanesImage, cv::Point2f(j * 8, i * 8), 3, lanesColor, -1);
-            }
-        }
-    }
+    // cv::Mat lanesImage = mInputImage.clone();
+    // cv::Scalar lanesColor(0, 0, 255);
+    // for (int i = 0; i < dim.d[1]; ++i) {
+    //     for (int j = 0; j < dim.d[2]; ++j) {
+    //         if ((int)mask.at<uchar>(j, i)) {
+    //             cv::circle(lanesImage, cv::Point2f(j * 8, i * 8), 3, lanesColor, -1);
+    //         }
+    //     }
+    // }
 
-    cv::imshow("lanes", lanesImage);
-    cv::waitKey(0);
+    // cv::imshow("lanes", lanesImage);
+    // cv::waitKey(0);
 
     gLogInfo << "Construct lanelines:" << std::endl;
 
     cv::Mat offset = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets, mask);
+    gLogInfo << "Output offset:" << std::endl;
+    for (int i = 0; i < dim.d[1]; ++i) {
+        for (int j = 0; j < dim.d[2]; ++j) {
+            gLogInfo << (offset.at<cv::Vec2f>(j, i)[0] ? 1 : 0);
+        }
+        gLogInfo << std::endl;
+    }
+
     cv::Mat feature = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance, mask);
+    gLogInfo << "Output instance:" << std::endl;
+    for (int i = 0; i < dim.d[1]; ++i) {
+        for (int j = 0; j < dim.d[2]; ++j) {
+            gLogInfo << (feature.at<cv::Vec4f>(j, i)[0] ? 1 : 0);
+        }
+        gLogInfo << std::endl;
+    }
 
     //gLogInfo << "offset: "<< offset << std::endl;
     //std::cout << cv::format(offset, cv::Formatter::FMT_NUMPY) << ";" << endl << endl;
