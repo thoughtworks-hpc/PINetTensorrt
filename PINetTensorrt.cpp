@@ -30,8 +30,8 @@ namespace {
     const float threshold_instance = 0.22f;
     const int resize_ratio = 8;
 
-    int64 total_inference_elasped_time = 0;
-    int64 total_inference_times = 0;
+    int64 total_inference_execute_elasped_time = 0;
+    int64 total_inference_execute_times = 0;
 
     using LaneLine = std::vector<cv::Point2f>;
     using LaneLines = std::vector<LaneLine>;
@@ -290,9 +290,9 @@ bool PINetTensorrt::infer()
     // Memcpy from device output buffers to host output buffers
     buffers.copyOutputToHost();
 
-    auto inferenceElapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - inferenceBeginTime);
-    total_inference_elasped_time += inferenceElapsedTime.count();
-    ++total_inference_times;
+    auto inference_execute_elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - inferenceBeginTime);
+    total_inference_execute_elasped_time += inference_execute_elapsed_time.count();
+    ++total_inference_execute_times;
 
     //gLogInfo << "inference elapsed time: " << inferenceElapsedTime.count() / 1000.f << " milliseconds" << std::endl;
 
@@ -581,24 +581,37 @@ int main(int argc, char** argv)
     }
 
     std::vector<std::string> filenames;
-    filenames.reserve(1024);
+    filenames.reserve(20480);
     for (size_t i = 0; i < onnx_args.dataDirs.size() - 1; i++) {
         getFiles(onnx_args.dataDirs[i], "jpg", filenames);
     }
 
-    for (const auto& filename : filenames) {
-        sample.setImageFile(filename);
+    auto inference_begin_time = std::chrono::high_resolution_clock::now();
+
+    #pragma omp parallel for
+    for (int i = 0; i < filenames.size(); ++i) {
+        sample.setImageFile(filenames[i]);
         if (!sample.infer()) {
             gLogger.reportFail(test);
         }
     }
 
+    auto inference_elpased_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - inference_begin_time);
+
     gLogger.reportPass(test);
 
-    gLogInfo << std::endl << "inference times: " << total_inference_times << std::endl << std::endl;
-    if (total_inference_times > 0) {
-        gLogInfo << "total   inference elapsed time: " << std::setw(16) << total_inference_elasped_time / 1000.f << " milliseconds" << std::endl << std::endl;
-        gLogInfo << "average inference elapsed time: " << std::setw(16) << total_inference_elasped_time / total_inference_times / 1000.f << " milliseconds" << std::endl << std::endl;
+    gLogInfo << std::endl;
+
+    gLogInfo << "totally inference time : " << inference_elpased_time.count() / 1000.f << std::endl << std::endl;
+    if (filenames.size()) {
+        gLogInfo << "totally inference times: " << filenames.size() << std::endl << std::endl;
+        gLogInfo << "average inference time : " << inference_elpased_time.count() / filenames.size() / 1000.f << std::endl << std::endl;
+    }
+
+    gLogInfo << "inference execute times: " << total_inference_execute_times << std::endl << std::endl;
+    if (total_inference_execute_times > 0) {
+        gLogInfo << "totally execute elapsed time: " << std::setw(16) << total_inference_execute_elasped_time / 1000.f << " milliseconds" << std::endl << std::endl;
+        gLogInfo << "average execute elapsed time: " << std::setw(16) << total_inference_execute_elasped_time / total_inference_execute_times / 1000.f << " milliseconds" << std::endl << std::endl;
     }
 
     return 0;
