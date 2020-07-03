@@ -69,7 +69,7 @@ namespace {
                 continue;
             } else if(ptr->d_type == 8)  {// file
                 char* dot = strchr(ptr->d_name, '.');
-                if (dot && !strcasecmp(dot + 1, ext.c_str())) {
+                if (dot && !strcasecmp(dot, ext.c_str())) {
                     std::string filename(root_dir);
                     filename.append("/").append(ptr->d_name);
                     files.push_back(filename);
@@ -583,7 +583,7 @@ int main(int argc, char** argv)
     std::vector<std::string> filenames;
     filenames.reserve(20480);
     for (size_t i = 0; i < onnx_args.dataDirs.size() - 1; i++) {
-        getFiles(onnx_args.dataDirs[i], "jpg", filenames);
+        getFiles(onnx_args.dataDirs[i], ".jpg", filenames);
     }
 
     auto inference_begin_time = std::chrono::high_resolution_clock::now();
