@@ -588,9 +588,8 @@ int main(int argc, char** argv)
 
     auto inference_begin_time = std::chrono::high_resolution_clock::now();
 
-    #pragma omp parallel for
-    for (int i = 0; i < filenames.size(); ++i) {
-        sample.setImageFile(filenames[i]);
+    for (const auto& filename : filenames) {
+        sample.setImageFile(filename);
         if (!sample.infer()) {
             gLogger.reportFail(test);
         }
