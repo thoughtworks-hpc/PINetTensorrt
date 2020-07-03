@@ -7,11 +7,16 @@
 #include "NvInfer.h"
 #include <cuda_runtime_api.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <chrono>
+#include <dirent.h>
+#include <string.h>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/core.hpp>
@@ -24,6 +29,9 @@ namespace {
     const float threshold_point = 0.81f;
     const float threshold_instance = 0.22f;
     const int resize_ratio = 8;
+
+    int64 total_inference_elasped_time = 0;
+    int64 total_inference_times = 0;
 
     using LaneLine = std::vector<cv::Point2f>;
     using LaneLines = std::vector<LaneLine>;
@@ -45,6 +53,37 @@ namespace {
         cv::Mat mergedMat;
         cv::merge(channels.data(), channelNum, mergedMat);
         return mergedMat;
+    }
+
+    void getFiles(std::string root_dir, std::string ext, std::vector<std::string>& files) {
+        DIR *dir;
+        struct dirent *ptr;
+
+        if ((dir = opendir(root_dir.c_str())) == NULL) {
+            perror("Open dir error...");
+            return;
+        }
+    
+        while ((ptr = readdir(dir)) != NULL) {
+            if (strcmp(ptr->d_name,".") == 0 || strcmp(ptr->d_name,"..") == 0) {
+                continue;
+            } else if(ptr->d_type == 8)  {// file
+                char* dot = strchr(ptr->d_name, '.');
+                if (dot && !strcasecmp(dot + 1, ext.c_str())) {
+                    std::string filename(root_dir);
+                    filename.append("/").append(ptr->d_name);
+                    files.push_back(filename);
+                }
+            } else if(ptr->d_type == 10) { // link file  
+                continue;
+            } else if(ptr->d_type == 4)  {// dir
+                std::string dir_path(root_dir);
+                dir_path.append("/").append(ptr->d_name);
+                getFiles(dir_path.c_str(), ext, files);
+            }  
+        }
+
+        closedir(dir);  
     }
 }
 
@@ -191,8 +230,7 @@ bool PINetTensorrt::constructNetwork(UniquePtr<nvinfer1::IBuilder>& builder,
     UniquePtr<nvinfer1::INetworkDefinition>& network, UniquePtr<nvinfer1::IBuilderConfig>& config,
     UniquePtr<nvonnxparser::IParser>& parser)
 {
-    auto parsed = parser->parseFromFile(
-        locateFile(mParams.onnxFileName, mParams.dataDirs).c_str(), static_cast<int>(gLogger.getReportableSeverity()));
+    auto parsed = parser->parseFromFile(mParams.onnxFileName.c_str(), static_cast<int>(gLogger.getReportableSeverity()));
     if (!parsed)
     {
         return false;
@@ -253,7 +291,10 @@ bool PINetTensorrt::infer()
     buffers.copyOutputToHost();
 
     auto inferenceElapsedTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - inferenceBeginTime);
-    gLogInfo << "inference elapsed time: " << inferenceElapsedTime.count() / 1000.f << " milliseconds" << std::endl;
+    total_inference_elasped_time += inferenceElapsedTime.count();
+    ++total_inference_times;
+
+    //gLogInfo << "inference elapsed time: " << inferenceElapsedTime.count() / 1000.f << " milliseconds" << std::endl;
 
     // Verify results
     if (!verifyOutput(buffers))
@@ -273,7 +314,7 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     const int inputW = mInputDims.d[1];
     const int inputH = mInputDims.d[2];
 
-    cv::Mat image = cv::imread(locateFile(mImageFileName, mParams.dataDirs), 1);
+    cv::Mat image = cv::imread(mImageFileName, 1);
     assert(inputC == image.channels());
     cv::resize(image, image, cv::Size(inputH, inputW));
 
@@ -286,7 +327,7 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
             hostDataBuffer[c * volChl + j] = float(imageData[j * inputC + c]) / 255.f;
         }
     }
-    
+
     return true;
 }
 
@@ -447,17 +488,16 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
                         {255, 100,   0}, {  0, 100, 255}, {255,   0, 100}, 
                         {  0, 255, 100}};
 
-    cv::Mat lanelineImage = mInputImage.clone();
+    cv::Mat lanelineImage = mInputImage;
     for (int i = 0; i < lanelines.size(); ++i) {
         for (const auto& point : lanelines[i]) {
             cv::circle(lanelineImage, cv::Point2f(point * 8), 3, color[i], -1);
         }
     }
 
-    cv::imwrite("lanelines.jpg", lanelineImage);
+    if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE) {
+        cv::imwrite("lanelines.jpg", lanelineImage);
 
-    //if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE)
-    {
         cv::imshow("lanelines", lanelineImage);
         cv::waitKey(0);
     }
@@ -470,15 +510,16 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
 common::OnnxParams initializeSampleParams(const common::Args& args)
 {
     common::OnnxParams params;
-    if (args.dataDirs.empty()) //!< Use default directories if user hasn't provided directory paths
-    {
+    if (args.dataDirs.empty()) {//!< Use default directories if user hasn't provided directory paths
         params.dataDirs.push_back("/home/xuwen/devel/PINetTensorrt/data");
-    }
-    else //!< Use the data directory provided by the user
-    {
+    } else {//!< Use the data directory provided by the user
         params.dataDirs = args.dataDirs;
     }
-    //params.onnxFileName = "pinet.onnx";
+    params.dataDirs.push_back("/home/xuwen/devel/PINetTensorrt");
+
+    char pwd[1024] = {0};
+    getcwd(pwd, sizeof(pwd));
+
     params.onnxFileName = "pinet.onnx";
     params.inputTensorNames.push_back("0");
     params.batchSize = 1;
@@ -529,8 +570,8 @@ int main(int argc, char** argv)
 
     gLogger.reportTestStart(test);
 
-    PINetTensorrt sample(initializeSampleParams(args));
-    sample.setImageFile("1492638000682869180/1.jpg");
+    common::OnnxParams onnx_args = initializeSampleParams(args);
+    PINetTensorrt sample(onnx_args);
 
     gLogInfo << "Building and running a GPU inference engine for Onnx PINet" << std::endl;
 
@@ -538,10 +579,27 @@ int main(int argc, char** argv)
     {
         return gLogger.reportFail(test);
     }
-    if (!sample.infer())
-    {
-        return gLogger.reportFail(test);
+
+    std::vector<std::string> filenames;
+    filenames.reserve(1024);
+    for (size_t i = 0; i < onnx_args.dataDirs.size() - 1; i++) {
+        getFiles(onnx_args.dataDirs[i], "jpg", filenames);
     }
 
-    return gLogger.reportPass(test);
+    for (const auto& filename : filenames) {
+        sample.setImageFile(filename);
+        if (!sample.infer()) {
+            gLogger.reportFail(test);
+        }
+    }
+
+    gLogger.reportPass(test);
+
+    gLogInfo << std::endl << "inference times: " << total_inference_times << std::endl << std::endl;
+    if (total_inference_times > 0) {
+        gLogInfo << "total   inference elapsed time: " << std::setw(16) << total_inference_elasped_time / 1000.f << " milliseconds" << std::endl << std::endl;
+        gLogInfo << "average inference elapsed time: " << std::setw(16) << total_inference_elasped_time / total_inference_times / 1000.f << " milliseconds" << std::endl << std::endl;
+    }
+
+    return 0;
 }
