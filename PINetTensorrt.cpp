@@ -511,11 +511,10 @@ common::OnnxParams initializeSampleParams(const common::Args& args)
 {
     common::OnnxParams params;
     if (args.dataDirs.empty()) {//!< Use default directories if user hasn't provided directory paths
-        params.dataDirs.push_back("/home/xuwen/devel/PINetTensorrt/data");
+        params.dataDirs.push_back("./data/1492638000682869180");
     } else {//!< Use the data directory provided by the user
         params.dataDirs = args.dataDirs;
     }
-    params.dataDirs.push_back("/home/xuwen/devel/PINetTensorrt");
 
     char pwd[1024] = {0};
     getcwd(pwd, sizeof(pwd));
@@ -582,7 +581,7 @@ int main(int argc, char** argv)
 
     std::vector<std::string> filenames;
     filenames.reserve(20480);
-    for (size_t i = 0; i < onnx_args.dataDirs.size() - 1; i++) {
+    for (size_t i = 0; i < onnx_args.dataDirs.size(); i++) {
         getFiles(onnx_args.dataDirs[i], ".jpg", filenames);
     }
 
