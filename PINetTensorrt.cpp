@@ -601,16 +601,16 @@ int main(int argc, char** argv)
 
     gLogInfo << std::endl;
 
-    gLogInfo << "totally inference time : " << inference_elpased_time.count() / 1000.f << std::endl << std::endl;
+    gLogInfo <<     "totally inference time      : " << inference_elpased_time.count() / 1000.f << " milliseconds" << std::endl;
     if (filenames.size()) {
-        gLogInfo << "totally inference times: " << filenames.size() << std::endl << std::endl;
-        gLogInfo << "average inference time : " << inference_elpased_time.count() / filenames.size() / 1000.f << std::endl << std::endl;
+        gLogInfo << "totally inference times     : " << filenames.size() << std::endl;
+        gLogInfo << "average inference time      : " << inference_elpased_time.count() / filenames.size() / 1000.f << " milliseconds"<< std::endl;
     }
 
-    gLogInfo << "inference execute times: " << total_inference_execute_times << std::endl << std::endl;
     if (total_inference_execute_times > 0) {
-        gLogInfo << "totally execute elapsed time: " << std::setw(16) << total_inference_execute_elasped_time / 1000.f << " milliseconds" << std::endl << std::endl;
-        gLogInfo << "average execute elapsed time: " << std::setw(16) << total_inference_execute_elasped_time / total_inference_execute_times / 1000.f << " milliseconds" << std::endl << std::endl;
+        gLogInfo << "totally execute elapsed time: " << total_inference_execute_elasped_time / 1000.f << " milliseconds" << std::endl << std::endl;
+        gLogInfo << "inference execute times     : " << total_inference_execute_times << std::endl;
+        gLogInfo << "average execute elapsed time: " << total_inference_execute_elasped_time / total_inference_execute_times / 1000.f << " milliseconds" << std::endl << std::endl;
     }
 
     return 0;
