@@ -61,7 +61,7 @@ you can convert Pytorch weights file to onnx file, follow as:
 ## Test
 
 ### Object
-- Pytorch implement of [PINet](github.com/koyeongmin/PINet)
+- Pytorch implement of PINet
 - Tensorrt C++ implement of PINet
 
 
@@ -116,9 +116,9 @@ CPU Frequency: 2036 mhz
 ram：16GB
 
 
-### result
+### Test
 
-##### explain
+##### Explain
 
 - end to end：elapsed time of read image， inference，post processing，draw lane line result to image
 - execute： elapsed time of copy host ram to device vram，inference exectute， copy device vram to host ram
@@ -171,4 +171,4 @@ execute    = totally execute    / count of image in dataset
 ##### Result
 - elapsed time of inference execute under x86 architecture, Tensorrt C++ implement faster 1.5 times than Pytorch implement
 - elapsed time of end to end under x86 architecture, Tensorrt C++ implement faster 10 times than Pytorch implement
-- elapsed time of inference execute under Xavier, x86 architecture faster 2 times， takes 20 ms on average 
+- elapsed time of inference execute under Xavier, x86 architecture faster 2 times，takes 20 ms on average 
