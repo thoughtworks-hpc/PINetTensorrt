@@ -5,7 +5,7 @@
 - Author : Yeongmin Ko, Jiwon Jun, Donghwuy Ko, Moongu Jeon (Gwanju Institute of Science and Technology)
 
 
-- This repository is TensorRT implement of [PINet](github.com/koyeongmin/PINet)
+- This repository is TensorRT implement of [PINet](https://github.com/koyeongmin/PINet)
 
 
 ## Dependency
@@ -14,6 +14,11 @@
 - OpenCV
 
 ## Convert
+
+- clone [PINet](https://github.com/koyeongmin/PINet) source code
+```python
+    git clone https://github.com/koyeongmin/PINet.git
+```
 
 you can convert Pytorch weights file to onnx file, follow as:
 
