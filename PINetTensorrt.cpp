@@ -60,7 +60,7 @@ namespace {
         struct dirent *ptr;
 
         if ((dir = opendir(root_dir.c_str())) == NULL) {
-            perror("Open dir error...");
+            gLogInfo << "Open dir error..." << std::endl;
             return;
         }
     
@@ -87,7 +87,7 @@ namespace {
     }
 }
 
-//! \brief  The SampleOnnxMNIST class implements the ONNX PINet sample
+//! \brief  The PINetTensorrt class implements the ONNX PINet sample
 //!
 //! \details It creates the network using an ONNX model
 //!
@@ -143,7 +143,9 @@ private:
     //!
     bool verifyOutput(const common::BufferManager& buffers);
 
-    LaneLines generate_result(float* confidance, float* offsets, float* instance, float thresh);
+    void generatePostData(float* confidance_data, float* offsets_data, float* instance_data, cv::Mat& mask, cv::Mat& offsets, cv::Mat& features);
+
+    LaneLines generateLaneLine(float* confidance_data, float* offsets_data, float* instance_data);
 };
 
 //!
@@ -331,17 +333,17 @@ bool PINetTensorrt::processInput(const common::BufferManager& buffers)
     return true;
 }
 
-LaneLines PINetTensorrt::generate_result(float* confidance_data, float* offsets_data, float* instance_data, float thresh)
+void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data, float* instance_data, cv::Mat& mask, cv::Mat& offsets, cv::Mat& features)
 {
     const nvinfer1::Dims& dim            = mOutputDims[output_base_index];//1 32 64
     const nvinfer1::Dims& offset_dim     = mOutputDims[output_base_index + 1];//2 32 64
     const nvinfer1::Dims& instance_dim   = mOutputDims[output_base_index + 2];//4 32 64
 
-    cv::Mat mask = cv::Mat::zeros(dim.d[2], dim.d[1], CV_8UC1);
+    mask = cv::Mat::zeros(dim.d[2], dim.d[1], CV_8UC1);
     float* confidance_ptr = confidance_data;
     for (int i = 0; i < dim.d[1]; ++i) {
         for (int j = 0; j < dim.d[2]; ++j, ++confidance_ptr) {
-            if (*confidance_ptr > thresh) {
+            if (*confidance_ptr > threshold_point) {
                 mask.at<uchar>(j, i) = 1;
             }
         }
@@ -369,8 +371,8 @@ LaneLines PINetTensorrt::generate_result(float* confidance_data, float* offsets_
         cv::waitKey(0);
     }
 
-    cv::Mat offsets  = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets_data, mask);
-    cv::Mat features = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance_data, mask);    
+    offsets  = chwDataToMat(offset_dim.d[0], offset_dim.d[1], offset_dim.d[2], offsets_data, mask);
+    features = chwDataToMat(instance_dim.d[0], instance_dim.d[1], instance_dim.d[2], instance_data, mask);    
 
     if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE) {
         gLogInfo << "Output offset:" << std::endl;
@@ -403,7 +405,15 @@ LaneLines PINetTensorrt::generate_result(float* confidance_data, float* offsets_
             gLogInfo << std::endl;
         }
     }
+}
 
+LaneLines PINetTensorrt::generateLaneLine(float* confidance_data, float* offsets_data, float* instance_data)
+{
+    const nvinfer1::Dims& dim = mOutputDims[output_base_index];//1 32 64
+
+    cv::Mat mask, offsets, features;
+    generatePostData(confidance_data, offsets_data, instance_data, mask, offsets, features);
+    
     LaneLines laneLines;
     std::vector<cv::Vec4f> laneFeatures;
 
@@ -478,7 +488,7 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
     assert(offsetDims.d[0]     == 2);
     assert(instanceDims.d[0]   == 4);
 
-    LaneLines lanelines = generate_result(confidance, offset, instance, threshold_point);
+    LaneLines lanelines = generateLaneLine(confidance, offset, instance);
     if (lanelines.empty())
         return false;
 

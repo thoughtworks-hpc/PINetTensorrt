@@ -23,4 +23,4 @@ add_executable(${PROJECT_NAME} ${COMMON_SRCS} ${SRCS})
 set(CUDA_LIB cuda cudnn cublas cudart culibos)
 set(NV_LIB nvinfer nvparsers nvinfer_plugin nvonnxparser)
 
-target_link_libraries(${PROJECT_NAME} ${CUDA_LIB} ${NV_LIB} ${OpenCV_LIBS} ${OpenMP_LIBS})
+target_link_libraries(${PROJECT_NAME} ${CUDA_LIB} ${NV_LIB} ${OpenCV_LIBS})
