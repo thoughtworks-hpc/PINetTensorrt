@@ -41,10 +41,10 @@ namespace {
         int data_size = width * height;
         for (int c = 0; c < channelNum; ++c) {
             float* channel_data = data + data_size * c;
-            cv::Mat channel(width, height, CV_32FC1);
+            cv::Mat channel(height, width, CV_32FC1);
             for (int h = 0; h < height; ++h) {
                 for (int w = 0; w < width; ++w, ++channel_data) {
-                    channel.at<float>(w, h) = *channel_data * (int)mask.at<uchar>(w, h);
+                    channel.at<float>(h, w) = *channel_data * (int)mask.at<uchar>(h, w);
                 }
             }
             channels[c] = channel;
@@ -339,12 +339,12 @@ void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data
     const nvinfer1::Dims& offset_dim     = mOutputDims[output_base_index + 1];//2 32 64
     const nvinfer1::Dims& instance_dim   = mOutputDims[output_base_index + 2];//4 32 64
 
-    mask = cv::Mat::zeros(dim.d[2], dim.d[1], CV_8UC1);
+    mask = cv::Mat::zeros(dim.d[1], dim.d[2], CV_8UC1);
     float* confidance_ptr = confidance_data;
     for (int i = 0; i < dim.d[1]; ++i) {
         for (int j = 0; j < dim.d[2]; ++j, ++confidance_ptr) {
             if (*confidance_ptr > threshold_point) {
-                mask.at<uchar>(j, i) = 1;
+                mask.at<uchar>(i, j) = 1;
             }
         }
     }
@@ -353,7 +353,7 @@ void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data
         gLogInfo << "Output mask:" << std::endl;
         for (int i = 0; i < dim.d[1]; ++i) {
             for (int j = 0; j < dim.d[2]; ++j) {
-                gLogInfo << (int)mask.at<uchar>(j, i);
+                gLogInfo << (int)mask.at<uchar>(i, j);
             }
             gLogInfo << std::endl;
         }
@@ -362,7 +362,7 @@ void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data
         cv::Scalar color(0, 0, 255);
         for (int i = 0; i < dim.d[1]; ++i) {
             for (int j = 0; j < dim.d[2]; ++j) {
-                if ((int)mask.at<uchar>(j, i)) {
+                if ((int)mask.at<uchar>(i, j)) {
                     cv::circle(maskImage, cv::Point2f(j * 8, i * 8), 3, color, -1);
                 }
             }
@@ -378,7 +378,7 @@ void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data
         gLogInfo << "Output offset:" << std::endl;
         for (int i = 0; i < dim.d[1]; ++i) {
             for (int j = 0; j < dim.d[2]; ++j) {
-                gLogInfo << (offsets.at<cv::Vec2f>(j, i)[0] ? 1 : 0);
+                gLogInfo << (offsets.at<cv::Vec2f>(i, j)[0] ? 1 : 0);
             }
             gLogInfo << std::endl;
         }
@@ -387,9 +387,9 @@ void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data
         cv::Scalar color(0, 0, 255);
         for (int i = 0; i < dim.d[1]; ++i) {
             for (int j = 0; j < dim.d[2]; ++j) {
-                if ((int)mask.at<uchar>(j, i)) {
-                    cv::Vec2f pointOffset = offsets.at<cv::Vec2f>(j, i);
-                    cv::Point2f point(pointOffset[0] + j, pointOffset[1] + i);
+                if ((int)mask.at<uchar>(i, j)) {
+                    cv::Vec2f pointOffset = offsets.at<cv::Vec2f>(i, j);
+                    cv::Point2f point(pointOffset[1] + j, pointOffset[0] + i);
                     cv::circle(offsetImage, point * 8, 3, color, -1);
                 }
             }
@@ -400,7 +400,7 @@ void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data
         gLogInfo << "Output instance:" << std::endl;
         for (int i = 0; i < dim.d[1]; ++i) {
             for (int j = 0; j < dim.d[2]; ++j) {
-                gLogInfo << (features.at<cv::Vec4f>(j, i)[0] ? 1 : 0);
+                gLogInfo << (features.at<cv::Vec4f>(i, j)[0] ? 1 : 0);
             }
             gLogInfo << std::endl;
         }
@@ -429,16 +429,16 @@ LaneLines PINetTensorrt::generateLaneLine(float* confidance_data, float* offsets
 
     for (int i = 0; i < dim.d[1]; ++i) {
         for (int j = 0; j < dim.d[2]; ++j) {
-            if ((int)mask.at<uchar>(j, i) == 0) {
+            if ((int)mask.at<uchar>(i, j) == 0) {
                 continue;
             }
 
-            const cv::Vec2f& offset = offsets.at<cv::Vec2f>(j, i);
-            cv::Point2f point(offset[0] + j, offset[1] + i);
+            const cv::Vec2f& offset = offsets.at<cv::Vec2f>(i, j);
+            cv::Point2f point(offset[1] + j, offset[0] + i);
             if (point.x > dim.d[2] || point.x < 0.f) continue;
             if (point.y > dim.d[1] || point.y < 0.f) continue;
 
-            const cv::Vec4f& feature = features.at<cv::Vec4f>(j, i);
+            const cv::Vec4f& feature = features.at<cv::Vec4f>(i, j);
             int lane_index = findNearestFeature(feature);
             
             if (lane_index == -1) {
@@ -505,7 +505,7 @@ bool PINetTensorrt::verifyOutput(const common::BufferManager& buffers)
         }
     }
 
-    if (gLogger.getReportableSeverity() == Logger::Severity::kVERBOSE) {
+    if (gLogger.getReportableSeverity() == Logger::Severity::kINFO) {
         cv::imwrite("lanelines.jpg", lanelineImage);
 
         cv::imshow("lanelines", lanelineImage);
@@ -604,16 +604,16 @@ int main(int argc, char** argv)
         }
     }
 
-    auto inference_elpased_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - inference_begin_time);
+    auto inference_elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - inference_begin_time);
 
     gLogger.reportPass(test);
 
     gLogInfo << std::endl;
 
-    gLogInfo <<     "totally inference time      : " << inference_elpased_time.count() / 1000.f << " milliseconds" << std::endl;
+    gLogInfo <<     "totally inference time      : " << inference_elapsed_time.count() / 1000.f << " milliseconds" << std::endl;
     if (filenames.size()) {
         gLogInfo << "totally inference times     : " << filenames.size() << std::endl;
-        gLogInfo << "average inference time      : " << inference_elpased_time.count() / filenames.size() / 1000.f << " milliseconds"<< std::endl;
+        gLogInfo << "average inference time      : " << inference_elapsed_time.count() / filenames.size() / 1000.f << " milliseconds"<< std::endl;
     }
 
     if (total_inference_execute_times > 0) {
