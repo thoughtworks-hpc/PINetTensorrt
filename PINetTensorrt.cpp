@@ -417,14 +417,19 @@ LaneLines PINetTensorrt::generateLaneLine(float* confidance_data, float* offsets
     LaneLines laneLines;
     std::vector<cv::Vec4f> laneFeatures;
 
-    auto findNearestFeature = [&laneFeatures](const cv::Vec4f& feature) -> int {
+
+    auto findNearestFeature = [&laneFeatures](const cv::Vec4f& feature) -> std::pair<int, float> {
+        int index=-1;
+        float min_feature_dis = 10000.;
         for (int i = 0; i < laneFeatures.size(); ++i) {
             auto delta = laneFeatures[i] - feature;
-            if (delta.dot(delta) <= threshold_instance) {
-                return i;
+            auto alpha = pow(delta[0],2)+pow(delta[1],2)+pow(delta[2],2)+pow(delta[3],2);
+            if (sqrt(alpha) <= min_feature_dis){
+                index = i;
+                min_feature_dis = sqrt(alpha);
             }
         }
-        return -1;
+        return std::pair<int, float>(index, min_feature_dis);
     };
 
     for (int i = 0; i < dim.d[1]; ++i) {
@@ -439,20 +444,26 @@ LaneLines PINetTensorrt::generateLaneLine(float* confidance_data, float* offsets
             if (point.y > dim.d[1] || point.y < 0.f) continue;
 
             const cv::Vec4f& feature = features.at<cv::Vec4f>(i, j);
-            int lane_index = findNearestFeature(feature);
-            
-            if (lane_index == -1) {
+            std::pair<int, float> lane_index = findNearestFeature(feature); 
+
+            if (lane_index.first == -1) {
                 laneLines.emplace_back(LaneLine({point}));
                 laneFeatures.emplace_back(feature);
-            } else {
-                auto& laneline = laneLines[lane_index];
-                auto& lanefeature = laneFeatures[lane_index];
+            } 
+            else if (lane_index.second <= threshold_instance ) {
 
-                auto point_size = laneline.size(); 
-
-                lanefeature = lanefeature.mul(cv::Vec4f::all(point_size)) + feature;
-                lanefeature = lanefeature.mul(cv::Vec4f::all(1.f / (point_size + 1)));
-                laneline.emplace_back(point);
+                auto& laneline = laneLines[lane_index.first ];
+                auto& lanefeature = laneFeatures[lane_index.first ];
+                if (lane_index.second <= threshold_instance ){                    
+                    auto point_size = laneline.size(); 
+                    lanefeature = lanefeature.mul(cv::Vec4f::all(point_size)) + feature;
+                    lanefeature = lanefeature.mul(cv::Vec4f::all(1.f / (point_size + 1)));
+                    laneline.emplace_back(point);
+                }
+            }
+            else{
+                laneLines.emplace_back(LaneLine({point}));
+                laneFeatures.emplace_back(feature);
             }
         }
     }
