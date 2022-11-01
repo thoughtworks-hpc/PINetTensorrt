@@ -389,7 +389,7 @@ void PINetTensorrt::generatePostData(float* confidance_data, float* offsets_data
             for (int j = 0; j < dim.d[2]; ++j) {
                 if ((int)mask.at<uchar>(i, j)) {
                     cv::Vec2f pointOffset = offsets.at<cv::Vec2f>(i, j);
-                    cv::Point2f point(pointOffset[1] + j, pointOffset[0] + i);
+                    cv::Point2f point(pointOffset[0] + j, pointOffset[1] + i);
                     cv::circle(offsetImage, point * 8, 3, color, -1);
                 }
             }
@@ -439,7 +439,7 @@ LaneLines PINetTensorrt::generateLaneLine(float* confidance_data, float* offsets
             }
 
             const cv::Vec2f& offset = offsets.at<cv::Vec2f>(i, j);
-            cv::Point2f point(offset[1] + j, offset[0] + i);
+            cv::Point2f point(offset[0] + j, offset[1] + i);
             if (point.x > dim.d[2] || point.x < 0.f) continue;
             if (point.y > dim.d[1] || point.y < 0.f) continue;
 
